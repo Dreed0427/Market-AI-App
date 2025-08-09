@@ -1,0 +1,4 @@
+Environment variables needed:
+OPENAI_API_KEY   (optional, for summaries)
+PGHOST, PGUSER, PGPASSWORD, PGDATABASE, PGPORT
+FINNHUB_KEY      (optional, to fetch SPY)
