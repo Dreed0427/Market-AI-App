@@ -1,0 +1,71 @@
+import os, psycopg2, pandas as pd, streamlit as st
+from datetime import datetime, timedelta
+
+# ---- DB helpers ----
+def db_conn():
+    return psycopg2.connect(
+        host=os.getenv("PGHOST"),
+        user=os.getenv("PGUSER"),
+        password=os.getenv("PGPASSWORD"),
+        dbname=os.getenv("PGDATABASE"),
+        port=os.getenv("PGPORT", "5432"),
+        connect_timeout=10
+    )
+
+def init_db():
+    with db_conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS market_bars (
+          id SERIAL PRIMARY KEY,
+          symbol TEXT,
+          ts TIMESTAMP,
+          open NUMERIC,
+          high NUMERIC,
+          low NUMERIC,
+          close NUMERIC,
+          volume NUMERIC
+        );
+        """)
+        conn.commit()
+
+def load_data(symbol="BTC", days=7):
+    with db_conn() as conn:
+        df = pd.read_sql_query(
+            "SELECT ts, close AS price FROM market_bars WHERE symbol=%s AND ts>=NOW() - INTERVAL '%s day' ORDER BY ts",
+            conn, params=(symbol, days))
+    return df
+
+# ---- UI ----
+st.set_page_config(page_title="Market AI", page_icon="📈", layout="centered")
+st.title("📈 Market AI – Phone Dashboard")
+
+init_db()
+
+col1, col2 = st.columns(2)
+with col1:
+    symbol = st.selectbox("Symbol", ["BTC","ETH","SPY"])
+with col2:
+    days = st.slider("Days", 1, 30, 7)
+
+data = load_data(symbol, days)
+st.line_chart(data.set_index("ts")["price"])
+st.dataframe(data.tail(15))
+
+st.subheader("Quick explanation")
+if os.getenv("OPENAI_API_KEY"):
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        prompt = (f"Explain the last {days} days for {symbol} using ONLY this summary: "
+                  f"{data.tail(50).to_dict(orient='records')}. "
+                  "Keep it to 5 plain-English bullets.")
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.4
+        )
+        st.write(resp.choices[0].message.content)
+    except Exception as e:
+        st.caption(f"(OpenAI call skipped: {e})")
+else:
+    st.caption("Add OPENAI_API_KEY in Railway to get AI explanations.")
